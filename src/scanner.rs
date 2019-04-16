@@ -88,6 +88,8 @@ impl Scanner {
             '+' => Some(TokenType::PLUS),
             ';' => Some(TokenType::SEMICOLON),
             '*' => Some(TokenType::STAR),
+            '?' => Some(TokenType::QUESTION),
+            ':' => Some(TokenType::COLON),
             '!' => {
                 (if self.source.advance_match('=') {
                     Some(TokenType::BANG_EQUAL)
@@ -367,6 +369,8 @@ pub enum TokenType {
     SEMICOLON,
     SLASH,
     STAR,
+    QUESTION,
+    COLON,
 
     BANG,
     BANG_EQUAL,

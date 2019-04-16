@@ -18,7 +18,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(&mut self) -> Option<Expr> {
-        match self.expression() {
+        match self.comma() {
             Ok(expr) => Some(expr),
             Err(err) => {
                 err.throw();
@@ -27,8 +27,16 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn comma(&mut self) -> Result<Expr> {
+        self.create_binary_expr(Parser::expression, &[TokenType::COMMA])
+    }
+
     fn expression(&mut self) -> Result<Expr> {
-        self.equality()
+        self.ternary()
+    }
+
+    fn ternary(&mut self) -> Result<Expr> {
+        self.create_ternary_expr()
     }
 
     fn equality(&mut self) -> Result<Expr> {
@@ -131,6 +139,30 @@ impl<'a> Parser<'a> {
         }
 
         Ok(expr)
+    }
+
+    fn create_ternary_expr(&mut self) -> Result<Expr> {
+        let mut condition = self.equality()?;
+
+        if self.advance_match(&[TokenType::QUESTION]) {
+            let mut left = Box::new(self.expression()?);
+            if self.advance_match(&[TokenType::COLON]) {
+                let mut right = Box::new(self.expression()?);
+                return Ok(Expr::Ternary {
+                    condition: Box::new(condition),
+                    left,
+                    right,
+                });
+            } else {
+                return Err(InterpreterError::new(
+                    1,
+                    "Expected right side of ternary conditional",
+                    CustomError::ParserError(ParserError::UnterminatedToken),
+                ));
+            }
+        } else {
+            return Ok(condition);
+        }
     }
 }
 
