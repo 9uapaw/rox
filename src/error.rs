@@ -22,7 +22,7 @@ impl InterpreterError {
     }
 
     pub fn throw(&self) {
-        error(self.line, &self.message);
+        error(self.line, &self.message, &self.error);
     }
 }
 
@@ -38,18 +38,25 @@ impl error::Error for InterpreterError {
 #[derive(Debug)]
 pub enum CustomError {
     ParserError(ParserError),
+    ScannerError(ScannerError)
 }
 
 #[derive(Debug)]
 pub enum ParserError {
+    InvalidStatement,
+    UnterminatedToken
+}
+
+#[derive(Debug)]
+pub enum ScannerError {
     UnexpectedChar,
     InvalidNumber,
 }
 
-pub fn error(line: usize, message: &str) {
-    report(line, "", message);
+pub fn error(line: usize, message: &str, error_type: &CustomError) {
+    report(line, "", message, error_type);
 }
 
-fn report(line: usize, location: &str, message: &str) {
-    println!("[line {}] Error {}: {}", line, location, message);
+fn report(line: usize, location: &str, message: &str, error_type: &CustomError) {
+    println!("[line {}] {:?} {}: {}", line, error_type, location, message);
 }

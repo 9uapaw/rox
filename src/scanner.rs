@@ -3,7 +3,11 @@ use crate::error::CustomError;
 use crate::error::InterpreterError;
 use crate::error::ParserError;
 use crate::error::Result;
+use crate::error::ScannerError;
 use std::collections::HashMap;
+use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, TokenType> = {
@@ -40,10 +44,10 @@ impl Scanner {
     }
 
     pub fn scan_tokens(&mut self) -> &Vec<Token> {
-        self.source
-            .source
-            .chars()
-            .for_each(|c| println!("CHARS: {}", c));
+        //        self.source
+        //            .source
+        //            .chars()
+        //            .for_each(|c| println!("CHARS: {}", c));
         loop {
             self.source.start = self.source.current;
             let result = self.scan_single_token();
@@ -71,7 +75,7 @@ impl Scanner {
 
     fn scan_single_token(&mut self) -> Result<()> {
         let c: char = self.source.advance();
-        println!("CHAR: {} - CURRENT: {}", c, self.source.current);
+        //        println!("CHAR: {} - CURRENT: {}", c, self.source.current);
 
         let token = match c {
             '(' => Some(TokenType::LEFT_PAREN),
@@ -136,16 +140,13 @@ impl Scanner {
                 Ok(token_type) => Some(token_type),
                 Err(error) => return Err(error),
             },
-            '0'...'9' => {
-                println!("NUMBER");
-                None
-            }
+            '0'...'9' => Some(self.create_number_literal()?),
             'a'...'z' | 'A'...'Z' | '_' => Some(self.create_identifier()),
             _ => {
                 return Err(InterpreterError::new(
                     self.source.line,
                     &format!("Unexpected character: {}", self.source.query_previous()),
-                    CustomError::ParserError(ParserError::UnexpectedChar),
+                    CustomError::ScannerError(ScannerError::UnexpectedChar),
                 ));
             }
         };
@@ -184,7 +185,7 @@ impl Scanner {
             return Err(InterpreterError::new(
                 self.source.line,
                 "Unclosed string literal",
-                CustomError::ParserError(ParserError::UnexpectedChar),
+                CustomError::ScannerError(ScannerError::UnexpectedChar),
             ));
         }
         self.source.advance();
@@ -192,11 +193,10 @@ impl Scanner {
         let string_end = self.source.current;
         let literal = self.source.extract_as_string(string_start, string_end);
 
-        Ok(TokenType::STRING(literal))
+        Ok(TokenType::STRING(Literal::String(literal)))
     }
 
     fn create_number_literal(&mut self) -> Result<TokenType> {
-        let number_start = self.source.current;
         while self.source.query_current().is_numeric() {
             self.source.advance();
         }
@@ -208,24 +208,20 @@ impl Scanner {
             }
         }
 
-        let number_end = self.source.current;
+        let number_string = self.source.extract_as_string(self.source.start, self.source.current);
 
-        let number = match self
-            .source
-            .extract_as_string(number_start, number_end)
-            .parse::<f64>()
-        {
+        let number = match number_string.parse::<f64>() {
             Ok(number) => number,
             Err(error) => {
                 return Err(InterpreterError::new(
                     self.source.line,
-                    "Unable to parse number",
-                    CustomError::ParserError(ParserError::InvalidNumber),
+                    &format!("Unable to parse number: {}", number_string),
+                    CustomError::ScannerError(ScannerError::InvalidNumber),
                 ));
             }
         };
 
-        Ok(TokenType::NUMBER(number))
+        Ok(TokenType::NUMBER(Literal::Number(number)))
     }
 
     fn create_identifier(&mut self) -> TokenType {
@@ -325,20 +321,40 @@ impl Source {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
-    token_type: TokenType,
+    pub token_type: TokenType,
     lexem: String,
     literal: Option<Literal>,
     line: usize,
 }
 
-#[derive(Debug)]
-pub enum Literal {
-    String(String),
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", &self.lexem)
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum Literal {
+    String(String),
+    Boolean(bool),
+    Number(f64),
+    Null,
+}
+
+impl Display for Literal {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Literal::String(s) => write!(f, "{}", s),
+            Literal::Null => write!(f, "NULL"),
+            Literal::Number(n) => write!(f, "{}", n),
+            Literal::Boolean(b) => write!(f, "{}", b),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     LEFT_PAREN,
     RIGHT_PAREN,
@@ -362,8 +378,8 @@ pub enum TokenType {
     LESS_EQUAL,
 
     IDENTIFIER(String),
-    STRING(String),
-    NUMBER(f64),
+    STRING(Literal),
+    NUMBER(Literal),
 
     AND,
     CLASS,
