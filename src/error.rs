@@ -38,7 +38,8 @@ impl error::Error for InterpreterError {
 #[derive(Debug)]
 pub enum CustomError {
     ParserError(ParserError),
-    ScannerError(ScannerError)
+    ScannerError(ScannerError),
+    RuntimeError(RuntimeError)
 }
 
 #[derive(Debug)]
@@ -51,6 +52,12 @@ pub enum ParserError {
 pub enum ScannerError {
     UnexpectedChar,
     InvalidNumber,
+    SyntaxError
+}
+
+#[derive(Debug)]
+pub enum RuntimeError {
+    TypeError
 }
 
 pub fn error(line: usize, message: &str, error_type: &CustomError) {
