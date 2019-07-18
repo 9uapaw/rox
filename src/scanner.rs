@@ -27,6 +27,7 @@ lazy_static! {
         hash.insert("this", TokenType::THIS);
         hash.insert("var", TokenType::VAR);
         hash.insert("while", TokenType::WHILE);
+        hash.insert("print", TokenType::PRINT);
         hash
     };
 }
@@ -192,7 +193,7 @@ impl Scanner {
         }
         self.source.advance();
 
-        let string_end = self.source.current;
+        let string_end = self.source.current - 1;
         let literal = self.source.extract_as_string(string_start, string_end);
 
         Ok(TokenType::STRING(Literal::String(literal)))
@@ -326,7 +327,7 @@ impl Source {
 #[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
-    lexem: String,
+    pub lexem: String,
     literal: Option<Literal>,
     line: usize,
 }

@@ -2,6 +2,8 @@ use std::error;
 use std::result;
 use std::fmt;
 use std::fmt::Formatter;
+use std::iter::repeat;
+use crate::scanner::Token;
 
 pub type Result<T> = result::Result<T, InterpreterError>;
 
@@ -10,6 +12,7 @@ pub struct InterpreterError {
     line: usize,
     message: String,
     error: CustomError,
+    snippet: String
 }
 
 impl InterpreterError {
@@ -18,17 +21,29 @@ impl InterpreterError {
             line,
             message: String::from(message),
             error,
+            snippet: String::from("")
+        }
+    }
+
+    pub fn new_with_location(line: usize, message: &str, error: CustomError, location: &[Token]) -> InterpreterError {
+        InterpreterError {
+            line,
+            message: String::from(message),
+            error,
+            snippet: location.iter().map(|s| {s.lexem.clone()}).collect::<Vec<String>>().join(" ")
         }
     }
 
     pub fn throw(&self) {
-        error(self.line, &self.message, &self.error);
+        let underline: String = repeat("^").take(self.snippet.len()).collect();
+        println!("{}  |   {}", self.line, self.snippet);
+        println!("       {} error: {}", underline, self.message);
     }
 }
 
 impl fmt::Display for InterpreterError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "Error on line: {}. Cause: {}", self.line, self.message)
+        write!(f, "{:?} on line: {}. Cause: {}", self.error, self.line, self.message)
     }
 }
 
@@ -39,7 +54,8 @@ impl error::Error for InterpreterError {
 pub enum CustomError {
     ParserError(ParserError),
     ScannerError(ScannerError),
-    RuntimeError(RuntimeError)
+    RuntimeError(RuntimeError),
+    UnknownError
 }
 
 #[derive(Debug)]
@@ -57,7 +73,8 @@ pub enum ScannerError {
 
 #[derive(Debug)]
 pub enum RuntimeError {
-    TypeError
+    TypeError,
+    NotFound
 }
 
 pub fn error(line: usize, message: &str, error_type: &CustomError) {

@@ -18,7 +18,7 @@ fn main() {
         println!("Using jlox [script]");
         exit(EXIT);
     } else if args.len() == 2 {
-        runner.run_file(args.get(0).unwrap());
+        runner.run_file(args.get(1).unwrap());
     } else {
         runner.run_prompt();
     }

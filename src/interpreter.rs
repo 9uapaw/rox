@@ -1,5 +1,5 @@
-use crate::code::Expr;
 use crate::code::RoxObject;
+use crate::code::{Expr, Stmt};
 use crate::error::CustomError;
 use crate::error::InterpreterError;
 use crate::error::Result;
@@ -8,6 +8,30 @@ use crate::error::ScannerError;
 use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::scanner::TokenType;
+use crate::variable::{Environment, Env};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+pub struct Interpreter {
+    environment: Env
+}
+
+impl Interpreter {
+    pub fn new() -> Interpreter{
+        Interpreter {
+            environment: Rc::new(RefCell::new(Environment::new())),
+        }
+    }
+
+    pub fn run_interpretation(&mut self, mut statements: Vec<Stmt>) {
+        for stmt in statements.iter_mut() {
+            match stmt.evaluate(self.environment.clone()) {
+                Ok(_) => (),
+                Err(error) => println!("{}", error),
+            }
+        }
+    }
+}
 
 pub fn interpret_literal(literal: &Literal) -> Result<RoxObject> {
     Ok(RoxObject::Literal(literal.clone()))
@@ -65,6 +89,7 @@ pub fn interpret_binary(left: &Expr, operator: &Token, right: &Expr) -> Result<R
         TokenType::LESS_EQUAL => operate_on_number(&left_object, &right_object, "<="),
         TokenType::BANG_EQUAL => check_object_equality(&left_object, &right_object, true),
         TokenType::EQUAL_EQUAL => check_object_equality(&left_object, &right_object, false),
+        TokenType::COMMA => Ok(right_object),
         _ => Err(InterpreterError::new(
             1,
             &format!("Invalid binary operator: {:?}", &operator.token_type),
@@ -135,6 +160,10 @@ fn add_objects(left: &RoxObject, right: &RoxObject) -> Result<RoxObject> {
                     Literal::String(right_s) => {
                         Ok(RoxObject::Literal(Literal::String(s.clone() + &right_s)))
                     }
+                    Literal::Number(right_n) => Ok(RoxObject::Literal(Literal::String(format!(
+                        "{}{}",
+                        s, right_n
+                    )))),
                     _ => Err(InterpreterError::new(
                         1,
                         &format!(

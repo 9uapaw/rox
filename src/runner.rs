@@ -1,30 +1,35 @@
+use crate::error::error;
+use crate::interpreter::Interpreter;
+use crate::parser::Parser;
+use crate::scanner::Scanner;
+use crate::scanner::Token;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
-use crate::scanner::Scanner;
-use crate::scanner::Token;
-use crate::parser::Parser;
-use crate::error::error;
+use std::path::Path;
 
 pub struct Runner {
-    error_occured: bool
+    error_occured: bool,
+    interpreter: Interpreter
 }
 
 impl Runner {
-
     pub fn new() -> Runner {
-        Runner{error_occured: false}
+        Runner {
+            error_occured: false,
+            interpreter: Interpreter::new()
+        }
     }
 
     pub fn run_file(&mut self, path: &str) {
         let content =
-            String::from_utf8_lossy(&fs::read(path).expect(&format!("Path not found: {}", path)))
+            String::from_utf8_lossy(&fs::read(Path::new(path)).expect(&format!("Path not found: {}", path)))
                 .parse()
                 .expect("Unable to parse source file");
 
         match self.run(content) {
             Ok(_) => println!("Successful run"),
-            Err(error) => panic!(format!("Error occured: {}", error))
+            Err(error) => panic!(format!("Error occured: {}", error)),
         }
     }
 
@@ -35,36 +40,47 @@ impl Runner {
             let mut buffer = String::new();
             print!("> ");
             io::stdout().flush().unwrap();
-            stdin.read_line(&mut buffer).expect("Unexpected error on reading input");
-//            println!("BUFFER: {}", buffer);
+            stdin
+                .read_line(&mut buffer)
+                .expect("Unexpected error on reading input");
             self.run(buffer);
             self.error_occured = false;
         }
     }
 
-    fn run(&mut self, source: String) -> Result<(), String>{
+    fn run(&mut self, source: String) -> Result<(), String> {
         if self.error_occured {
             return Err(String::from("ERROR"));
         }
+        println!("{}", source);
 
         let mut scanner = Scanner::new(source);
         let tokens = scanner.scan_tokens();
         let mut parser = Parser::new(tokens);
-        let expr = parser.parse();
-
-        match expr {
-            Some(e) => println!("{}", e),
-            None => {
+        let statements = match parser.parse() {
+            Ok(s) => s,
+            Err(error) => {
+                println!("{}", error);
                 self.error_occured = true;
-                return Err(String::from("Error"));
+                return Err(format!("{}", error));
             }
-        }
+        };
+
+        self.interpreter.run_interpretation(statements);
+
+        //        match expr {
+        //            Some(e) => println!("{:?}", e.interpret().unwrap()),
+        //            None => {
+        //                self.error_occured = true;
+        //                return Err(String::from("Error"));
+        //            }
+        //        }
 
         Ok(())
 
-//        for token in tokens {
-//            println!("{:?}", token);
-//        }
-//        Ok(())
+        //        for token in tokens {
+        //            println!("{:?}", token);
+        //        }
+        //        Ok(())
     }
 }
