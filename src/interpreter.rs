@@ -8,16 +8,17 @@ use crate::error::ScannerError;
 use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::scanner::TokenType;
-use crate::variable::{Environment, Env};
+use crate::variable::{Env, Environment, RcObj};
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct Interpreter {
-    environment: Env
+    environment: Env,
 }
 
 impl Interpreter {
-    pub fn new() -> Interpreter{
+    pub fn new() -> Interpreter {
         Interpreter {
             environment: Rc::new(RefCell::new(Environment::new())),
         }
@@ -96,6 +97,32 @@ pub fn interpret_binary(left: &Expr, operator: &Token, right: &Expr) -> Result<R
             CustomError::ScannerError(ScannerError::UnexpectedChar),
         )),
     }
+}
+
+pub fn interpret_logical(left: &Expr, operator: &Token, right: &Expr) -> Result<RoxObject> {
+    let left_object = left.interpret()?;
+
+    match &operator.token_type {
+        TokenType::OR => {
+            if is_truthy(&left_object) {
+                return Ok(left_object);
+            }
+        }
+        TokenType::AND => {
+            if !is_truthy(&left_object) {
+                return Ok(left_object);
+            }
+        }
+        _ => {
+            return Err(InterpreterError::new(
+                1,
+                &format!("Invalid logical operator: {:?}", &operator.token_type),
+                CustomError::ScannerError(ScannerError::UnexpectedChar),
+            ));
+        }
+    };
+
+    return right.interpret();
 }
 
 pub fn interpret_ternary(condition: &Expr, left: &Expr, right: &Expr) -> Result<RoxObject> {
@@ -243,12 +270,23 @@ fn operate_on_number(left: &RoxObject, right: &RoxObject, operation: &str) -> Re
     }
 }
 
-fn is_truthy(obj: &RoxObject) -> bool {
+pub fn is_truthy(obj: &RoxObject) -> bool {
     match obj {
         RoxObject::Literal(literal) => match literal {
             Literal::Boolean(b) => *b,
             Literal::Null => false,
             _ => true,
         },
+    }
+}
+
+pub fn is_rox_obj_truthy(obj: RcObj) -> bool {
+    match *obj.as_ref().borrow() {
+        RoxObject::Literal(ref literal) => match literal {
+            Literal::Boolean(b) => *b,
+            Literal::Null => false,
+            _ => true,
+        },
+        _ => true,
     }
 }

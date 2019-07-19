@@ -38,6 +38,9 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt> {
+        if self.advance_match(&[TokenType::IF]) {
+            return self.if_statement();
+        }
         if self.advance_match(&[TokenType::PRINT]) {
             return self.print_statement();
         }
@@ -46,6 +49,28 @@ impl<'a> Parser<'a> {
         }
 
         self.expr_statement()
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt> {
+        self.consume(
+            TokenType::LEFT_PAREN,
+            "If condition must be enclosed in parentheses",
+        )?;
+        let cond = self.expression()?;
+        self.consume(TokenType::RIGHT_PAREN, "Unclosed parentheses")?;
+
+        let then_branch = self.statement()?;
+        let mut else_branch: Option<Box<Stmt>> = None;
+
+        if self.advance_match(&[TokenType::ELSE]) {
+            else_branch = Some(Box::new(self.statement()?));
+        }
+
+        return Ok(Stmt::If {
+            condition: Box::new(cond),
+            then_branch: Box::new(then_branch),
+            else_branch,
+        });
     }
 
     fn block(&mut self) -> Result<Vec<Box<Stmt>>> {
@@ -58,7 +83,7 @@ impl<'a> Parser<'a> {
         self.consume(
             TokenType::RIGHT_BRACE,
             "Missing } after block initialization",
-        );
+        )?;
         Ok(statements)
     }
 
@@ -84,6 +109,14 @@ impl<'a> Parser<'a> {
 
     fn assignment(&mut self) -> Result<Expr> {
         self.create_assignment()
+    }
+
+    fn or(&mut self) -> Result<Expr> {
+        self.create_logical_expr(Parser::and, &[TokenType::OR])
+    }
+
+    fn and(&mut self) -> Result<Expr> {
+        self.create_logical_expr(Parser::ternary, &[TokenType::AND])
     }
 
     fn ternary(&mut self) -> Result<Expr> {
@@ -173,7 +206,7 @@ impl<'a> Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn create_assignment(&mut self) -> Result<Expr> {
-        let expr = self.ternary()?;
+        let expr = self.or()?;
 
         if self.advance_match(&[TokenType::EQUAL]) {
             let equals = self.previous();
@@ -197,6 +230,26 @@ impl<'a> Parser<'a> {
         }
 
         return Ok(expr);
+    }
+
+    fn create_logical_expr<F: Fn(&mut Parser<'a>) -> Result<Expr>>(
+        &mut self,
+        operation: F,
+        token_types: &[TokenType],
+    ) -> Result<Expr> {
+        let mut expr = operation(self)?;
+
+        while self.advance_match(token_types) {
+            let operator = self.previous().clone();
+            let right = operation(self)?;
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(expr)
     }
 
     fn create_binary_expr<F: Fn(&mut Parser<'a>) -> Result<Expr>>(

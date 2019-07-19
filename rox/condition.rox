@@ -1,0 +1,7 @@
+if (3 > 4) {
+    print "3 > 4 IS NOT TRUE";
+} else {
+    print "3 < 4 IS THE TRUTH";
+    print "hi" or 4;
+    print nil or "not nil";
+}

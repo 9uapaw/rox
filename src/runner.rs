@@ -52,7 +52,6 @@ impl Runner {
         if self.error_occured {
             return Err(String::from("ERROR"));
         }
-        println!("{}", source);
 
         let mut scanner = Scanner::new(source);
         let tokens = scanner.scan_tokens();
@@ -67,20 +66,6 @@ impl Runner {
         };
 
         self.interpreter.run_interpretation(statements);
-
-        //        match expr {
-        //            Some(e) => println!("{:?}", e.interpret().unwrap()),
-        //            None => {
-        //                self.error_occured = true;
-        //                return Err(String::from("Error"));
-        //            }
-        //        }
-
         Ok(())
-
-        //        for token in tokens {
-        //            println!("{:?}", token);
-        //        }
-        //        Ok(())
     }
 }
