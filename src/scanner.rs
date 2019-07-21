@@ -329,7 +329,7 @@ pub struct Token {
     pub token_type: TokenType,
     pub lexem: String,
     literal: Option<Literal>,
-    line: usize,
+    pub line: usize,
 }
 
 impl Display for Token {

@@ -3,19 +3,19 @@ use crate::error::CustomError;
 use crate::error::RuntimeError;
 use crate::error::{InterpreterError, Result};
 use crate::scanner::Token;
+use std::borrow::Borrow;
+use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use std::cell::{RefCell, Ref};
 use std::rc::Rc;
-use std::borrow::Borrow;
 
 pub type Env = Rc<RefCell<Environment>>;
 pub type RcObj = Rc<RefCell<RoxObject>>;
 
 pub struct Environment {
     values: HashMap<String, RcObj>,
-    enclosing: Option<Env>
+    enclosing: Option<Env>,
 }
 
 impl<'a, 'b> Environment {
@@ -43,7 +43,7 @@ impl<'a, 'b> Environment {
                     parent_env.as_ref().borrow().get(name)
                 } else {
                     Err(InterpreterError::new(
-                        1,
+                        name.line,
                         &format!("Undefined variable {}", name.lexem),
                         CustomError::RuntimeError(RuntimeError::NotFound),
                     ))
@@ -55,24 +55,29 @@ impl<'a, 'b> Environment {
     }
 
     pub fn define(&mut self, name: &str, value: RoxObject) {
-        self.values.insert(String::from(name), Rc::new(RefCell::new(value)));
+        self.values
+            .insert(String::from(name), Rc::new(RefCell::new(value)));
     }
 
-    pub fn assign(&mut self, name: &str, value: RoxObject) -> Result<()> {
+    pub fn wrap(&mut self, name: &str, obj: RcObj) {
+        self.values.insert(String::from(name), obj);
+    }
+
+    pub fn assign(&mut self, name: &str, value: RcObj) -> Result<()> {
         if self.values.contains_key(name) {
-            self.values.insert(String::from(name), Rc::new(RefCell::new(value)));
+            self.values.insert(String::from(name), value);
             return Ok(());
         }
 
         if let Some(ref mut parent_env) = self.enclosing {
-            parent_env.borrow_mut().assign(name, value);
+            return parent_env.borrow_mut().assign(name, value);
+        } else {
+            return Err(InterpreterError::new(
+                1,
+                &format!("Undefined variable {}", name),
+                CustomError::RuntimeError(RuntimeError::NotFound),
+            ));
         }
-
-        Err(InterpreterError::new(
-            1,
-            &format!("Undefined variable {}", name),
-            CustomError::RuntimeError(RuntimeError::NotFound),
-        ))
     }
 }
 

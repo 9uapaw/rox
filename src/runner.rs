@@ -1,4 +1,5 @@
 use crate::error::error;
+use crate::error::Result;
 use crate::interpreter::Interpreter;
 use crate::parser::Parser;
 use crate::scanner::Scanner;
@@ -29,7 +30,7 @@ impl Runner {
 
         match self.run(content) {
             Ok(_) => println!("Successful run"),
-            Err(error) => panic!(format!("Error occured: {}", error)),
+            Err(error) => eprintln!("{}", format!("Error occured: {}", error)),
         }
     }
 
@@ -48,24 +49,12 @@ impl Runner {
         }
     }
 
-    fn run(&mut self, source: String) -> Result<(), String> {
-        if self.error_occured {
-            return Err(String::from("ERROR"));
-        }
-
+    fn run(&mut self, source: String) -> Result<()> {
         let mut scanner = Scanner::new(source);
         let tokens = scanner.scan_tokens();
         let mut parser = Parser::new(tokens);
-        let statements = match parser.parse() {
-            Ok(s) => s,
-            Err(error) => {
-                println!("{}", error);
-                self.error_occured = true;
-                return Err(format!("{}", error));
-            }
-        };
+        let statements = parser.parse()?;
 
-        self.interpreter.run_interpretation(statements);
-        Ok(())
+        self.interpreter.run_interpretation(statements)
     }
 }

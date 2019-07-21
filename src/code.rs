@@ -1,10 +1,11 @@
 use crate::error::{CustomError, InterpreterError, Result};
-use crate::interpreter::{interpret_binary, interpret_literal, interpret_ternary, interpret_logical};
-use crate::interpreter::{interpret_unary, is_rox_obj_truthy, is_truthy};
+use crate::interpreter::{
+    interpret_binary, interpret_literal, interpret_logical, interpret_ternary,
+};
+use crate::interpreter::{interpret_unary, is_rox_obj_truthy };
 use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::variable::{Env, Environment, RcObj, Var};
-use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::fmt;
 use std::fmt::Display;
@@ -14,6 +15,14 @@ use std::rc::Rc;
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoxObject {
     Literal(Literal),
+}
+
+impl Display for RoxObject {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+      match self {
+          RoxObject::Literal(lit) => write!(f, "{}", lit)
+      }
+    }
 }
 
 pub enum Expr {
@@ -79,91 +88,43 @@ impl Display for Expr {
 impl Expr {
     pub fn evaluate(&self, env: Env) -> Result<RcObj> {
         match &self {
-            Expr::Literal { literal } => Ok(Rc::new(RefCell::new(interpret_literal(literal)?))),
-            Expr::Grouping { expression } => Ok(Rc::new(RefCell::new(expression.interpret()?))),
-            Expr::Unary { operator, right } => {
-                Ok(Rc::new(RefCell::new(interpret_unary(operator, right)?)))
-            }
+            Expr::Literal { literal } => interpret_literal(literal),
+            Expr::Grouping { expression } => expression.evaluate(env),
+            Expr::Unary { operator, right } => Ok(Rc::new(RefCell::new(interpret_unary(
+                operator, right, env,
+            )?))),
             Expr::Binary {
                 left,
                 operator,
                 right,
             } => Ok(Rc::new(RefCell::new(interpret_binary(
-                left, operator, right,
+                left, operator, right, env,
             )?))),
-            Expr::Logical{
+            Expr::Logical {
                 left,
                 operator,
                 right,
-            } => Ok(Rc::new(RefCell::new(interpret_binary(
-                left, operator, right,
-            )?))),
+            } => interpret_logical(left, operator, right, env),
             Expr::Ternary {
                 condition,
                 left,
                 right,
-            } => Ok(Rc::new(RefCell::new(interpret_ternary(
-                condition, left, right,
-            )?))),
+            } => interpret_ternary(condition, left, right, env),
             Expr::Variable(token) => (*env).borrow_mut().get(token),
             Expr::Assign { name, value } => {
-                let res = value.interpret()?;
+                let res = value.evaluate(env.clone())?;
                 (*env).borrow_mut().assign(&name.lexem, res)?;
                 (*env).borrow_mut().get(name)
             }
             _ => Err(InterpreterError::new(
                 0,
-                "Unexpected error",
+                &format!("Unexpected error on: {}", &self),
                 CustomError::UnknownError,
             )),
         }
     }
+}
 
-    pub fn interpret(&self) -> Result<RoxObject> {
-        match &self {
-            Expr::Literal { literal } => interpret_literal(literal),
-            Expr::Grouping { expression } => expression.interpret(),
-            Expr::Unary { operator, right } => interpret_unary(operator, right),
-            Expr::Binary {
-                left,
-                operator,
-                right,
-            } => interpret_binary(left, operator, right),
-            Expr::Logical{
-                left,
-                operator,
-                right,
-            } => interpret_logical(left, operator, right),
-            Expr::Ternary {
-                condition,
-                left,
-                right,
-            } => interpret_ternary(condition, left, right),
-            _ => Err(InterpreterError::new(
-                0,
-                "Unexpected error",
-                CustomError::UnknownError,
-            )),
-        }
-    }
-}
-impl<'a> Expr {
-    pub fn env_interpret(&self, environment: Env) -> Result<RcObj> {
-        match &self {
-            Expr::Variable(token) => (*environment).borrow_mut().get(token),
-            Expr::Assign { name, value } => {
-                let res = value.interpret()?;
-                (*environment).borrow_mut().assign(&name.lexem, res)?;
-                (*environment).borrow_mut().get(name)
-            }
-            _ => Err(InterpreterError::new(
-                0,
-                "Unexpected error",
-                CustomError::UnknownError,
-            )),
-        }
-    }
-}
 pub enum Stmt {
     Expression(Box<Expr>),
     Print(Box<Expr>),
@@ -174,6 +135,16 @@ pub enum Stmt {
         then_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
     },
+    While {
+        condition: Box<Expr>,
+        body: Box<Stmt>,
+    },
+    For {
+        init: Box<Stmt>,
+        cond: Box<Expr>,
+        post: Box<Expr>,
+        body: Box<Stmt>
+    }
 }
 
 impl<'a> Stmt {
@@ -189,7 +160,7 @@ impl<'a> Stmt {
             }
             Stmt::Var(var) => (*env)
                 .borrow_mut()
-                .define(&var.name.lexem, var.initializer.interpret()?),
+                .wrap(&var.name.lexem, var.initializer.evaluate(env.clone())?),
             Stmt::Block(ref block) => block.execute(env)?,
             Stmt::If {
                 condition: cond,
@@ -205,27 +176,35 @@ impl<'a> Stmt {
                     }
                 }
             }
+            Stmt::While {
+                condition,
+                ref body,
+            } => {
+                while is_rox_obj_truthy(condition.evaluate(env.clone())?) {
+                    body.evaluate(env.clone())?;
+                }
+            }
+            Stmt::For {init, cond, post, body} => {
+                init.evaluate(env.clone())?;
+                loop {
+                    if !is_rox_obj_truthy(cond.evaluate(env.clone())?) {
+                        break
+                    } else {
+                        body.evaluate(env.clone())?;
+                    }
+                    post.evaluate(env.clone())?;
+                }
+            }
         };
 
         Ok(())
     }
 
     fn interpret_expr(&self, expr: &Box<Expr>, env: Env, print: bool) -> Result<()> {
-        match **expr {
-            Expr::Assign { .. } | Expr::Variable(_) => {
-                if print {
-                    println!("{:?}", expr.env_interpret(env)?.as_ref().borrow());
-                } else {
-                    expr.env_interpret(env)?;
-                }
-            }
-            _ => {
-                if print {
-                    println!("{:?}", expr.interpret()?);
-                } else {
-                    expr.interpret()?;
-                }
-            }
+        if print {
+            println!("{}", expr.evaluate(env)?.as_ref().borrow());
+        } else {
+            expr.evaluate(env)?;
         }
 
         Ok(())

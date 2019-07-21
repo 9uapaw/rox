@@ -29,7 +29,6 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> Result<Stmt> {
-        println!("{:?}", self.tokens);
         if self.advance_match(&[TokenType::VAR]) {
             return self.declare_var();
         }
@@ -44,6 +43,12 @@ impl<'a> Parser<'a> {
         if self.advance_match(&[TokenType::PRINT]) {
             return self.print_statement();
         }
+        if self.advance_match(&[TokenType::FOR]) {
+            return self.for_statement();
+        }
+        if self.advance_match(&[TokenType::WHILE]) {
+            return self.while_statement();
+        }
         if self.advance_match(&[TokenType::LEFT_BRACE]) {
             return Ok(Stmt::new_block(self.block()?));
         }
@@ -54,7 +59,7 @@ impl<'a> Parser<'a> {
     fn if_statement(&mut self) -> Result<Stmt> {
         self.consume(
             TokenType::LEFT_PAREN,
-            "If condition must be enclosed in parentheses",
+            "Condition must be enclosed in parentheses",
         )?;
         let cond = self.expression()?;
         self.consume(TokenType::RIGHT_PAREN, "Unclosed parentheses")?;
@@ -70,6 +75,48 @@ impl<'a> Parser<'a> {
             condition: Box::new(cond),
             then_branch: Box::new(then_branch),
             else_branch,
+        });
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::LEFT_PAREN, "For must be followed by parentheses")?;
+        let init = self.declaration()?;
+        match init {
+            Stmt::Var(_) | Stmt::Expression(_) => (),
+            _ => {
+                return Err(InterpreterError::new(
+                    1,
+                    "For initialization part can only be an expression or a declaration",
+                    CustomError::ScannerError(ScannerError::SyntaxError),
+                ));
+            }
+        };
+        let cond = self.comma()?;
+        self.consume(TokenType::SEMICOLON, "Missing delimiter: ;")?;
+        let post = self.comma()?;
+        self.consume(TokenType::RIGHT_PAREN, "Unclosed parentheses")?;
+        let body = self.statement()?;
+
+        Ok(Stmt::For {
+            init: Box::new(init),
+            cond: Box::new(cond),
+            post: Box::new(post),
+            body: Box::new(body),
+        })
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt> {
+        self.consume(
+            TokenType::LEFT_PAREN,
+            "Condition must be enclosed in parentheses",
+        )?;
+        let cond = self.expression()?;
+        self.consume(TokenType::RIGHT_PAREN, "Unclosed parentheses")?;
+        let body = self.statement()?;
+
+        return Ok(Stmt::While {
+            condition: Box::new(cond),
+            body: Box::new(body),
         });
     }
 
@@ -352,8 +399,8 @@ impl<'a> Parser<'a> {
         }
 
         Err(InterpreterError::new(
-            1,
-            "Expect expression",
+            self.peek().line,
+            &format!("Expected expression at: {}", self.peek()),
             CustomError::ParserError(ParserError::InvalidStatement),
         ))
     }
