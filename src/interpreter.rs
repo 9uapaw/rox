@@ -1,10 +1,11 @@
-use crate::code::RoxObject;
-use crate::code::{Expr, Stmt};
+use crate::ast::RoxObject;
+use crate::ast::{Expr, Stmt};
 use crate::error::CustomError;
 use crate::error::InterpreterError;
 use crate::error::Result;
 use crate::error::RuntimeError;
 use crate::error::ScannerError;
+use crate::obj::function::Callable;
 use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::scanner::TokenType;
@@ -19,8 +20,16 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Interpreter {
+        let mut global_env = Environment::new();
+        global_env.wrap(
+            "clock",
+            Rc::new(RefCell::new(RoxObject::Callable(Callable::Builtin(
+                String::from("clock"),
+            )))),
+        );
+
         Interpreter {
-            environment: Rc::new(RefCell::new(Environment::new())),
+            environment: Rc::new(RefCell::new(global_env)),
         }
     }
 
@@ -53,6 +62,13 @@ pub fn interpret_unary(operator: &Token, right: &Expr, env: Env) -> Result<RoxOb
                         ));
                     }
                 },
+                _ => {
+                    return Err(InterpreterError::new(
+                        operator.line,
+                        "Unable to use unary operator on anything but numbers",
+                        CustomError::RuntimeError(RuntimeError::TypeError),
+                    ));
+                }
             };
             return Ok(RoxObject::Literal(Literal::Number(-num)));
         }
@@ -144,6 +160,16 @@ pub fn interpret_ternary(condition: &Expr, left: &Expr, right: &Expr, env: Env) 
                 ));
             }
         },
+        _ => {
+            return Err(InterpreterError::new(
+                1,
+                &format!(
+                    "{} is not a boolean. Only booleans are valid conditions for ternary operators",
+                    condition
+                ),
+                CustomError::ScannerError(ScannerError::SyntaxError),
+            ));
+        }
     };
     if condition {
         left.evaluate(env.clone())
@@ -181,6 +207,11 @@ fn add_objects(left: RcObj, right: RcObj) -> Result<RoxObject> {
                         CustomError::RuntimeError(RuntimeError::TypeError),
                     )),
                 },
+                _ => Err(InterpreterError::new(
+                    1,
+                    &format!("Operation: + is not usable on {}", literal),
+                    CustomError::RuntimeError(RuntimeError::TypeError),
+                )),
             },
             Literal::String(s) => match *right.as_ref().borrow() {
                 RoxObject::Literal(ref right_literal) => match right_literal {
@@ -200,6 +231,11 @@ fn add_objects(left: RcObj, right: RcObj) -> Result<RoxObject> {
                         CustomError::RuntimeError(RuntimeError::TypeError),
                     )),
                 },
+                _ => Err(InterpreterError::new(
+                    1,
+                    &format!("Operation: + is not usable on {}", literal),
+                    CustomError::RuntimeError(RuntimeError::TypeError),
+                )),
             },
             _ => Err(InterpreterError::new(
                 1,
@@ -207,6 +243,11 @@ fn add_objects(left: RcObj, right: RcObj) -> Result<RoxObject> {
                 CustomError::RuntimeError(RuntimeError::TypeError),
             )),
         },
+        _ => Err(InterpreterError::new(
+            1,
+            &format!("Operation: + is not allowed for {}", left.as_ref().borrow()),
+            CustomError::RuntimeError(RuntimeError::TypeError),
+        )),
     }
 }
 
@@ -222,6 +263,13 @@ fn operate_on_number(left: RcObj, right: RcObj, operation: &str) -> Result<RoxOb
                 ));
             }
         },
+        _ => {
+            return Err(InterpreterError::new(
+                1,
+                &format!("Operation: {} is only allowed for numbers", operation),
+                CustomError::RuntimeError(RuntimeError::TypeError),
+            ));
+        }
     };
 
     let right_value = match *right.as_ref().borrow() {
@@ -235,6 +283,13 @@ fn operate_on_number(left: RcObj, right: RcObj, operation: &str) -> Result<RoxOb
                 ));
             }
         },
+        _ => {
+            return Err(InterpreterError::new(
+                1,
+                &format!("Operation: {} is only allowed for numbers", operation),
+                CustomError::RuntimeError(RuntimeError::TypeError),
+            ));
+        }
     };
 
     match operation {
@@ -277,6 +332,7 @@ pub fn is_truthy(obj: &RoxObject) -> bool {
             Literal::Null => false,
             _ => true,
         },
+        _ => true,
     }
 }
 

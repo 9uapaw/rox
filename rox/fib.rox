@@ -1,0 +1,7 @@
+var n = 6;
+
+print n - 3;
+
+var x = n - 3;
+
+print x;

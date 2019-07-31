@@ -85,7 +85,7 @@ impl Scanner {
             '}' => Some(TokenType::RIGHT_BRACE),
             ',' => Some(TokenType::COMMA),
             '.' => Some(TokenType::DOT),
-            '-' => Some(TokenType::SLASH),
+            '-' => Some(TokenType::MINUS),
             '+' => Some(TokenType::PLUS),
             ';' => Some(TokenType::SEMICOLON),
             '*' => Some(TokenType::STAR),
@@ -238,7 +238,7 @@ impl Scanner {
             .extract_as_string(identifier_start - 1, identifier_end);
         let token = match KEYWORDS.get::<str>(&text) {
             Some(token) => token.clone(),
-            None => TokenType::IDENTIFIER(text),
+            None => TokenType::IDENTIFIER,
         };
 
         token
@@ -324,7 +324,7 @@ impl Source {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexem: String,
@@ -382,7 +382,7 @@ pub enum TokenType {
     LESS,
     LESS_EQUAL,
 
-    IDENTIFIER(String),
+    IDENTIFIER,
     STRING(Literal),
     NUMBER(Literal),
 

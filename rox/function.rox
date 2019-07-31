@@ -1,0 +1,12 @@
+fun fibonacci(n) {
+    if (n <= 1) {
+        return n;
+    }
+
+    var x = n - 1;
+    var y = n - 2;
+    return fibonacci(y) + fibonacci(x);
+}
+
+print fibonacci(10);
+

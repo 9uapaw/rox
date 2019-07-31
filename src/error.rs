@@ -4,6 +4,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::iter::repeat;
 use crate::scanner::Token;
+use crate::variable::RcObj;
 
 pub type Result<T> = result::Result<T, InterpreterError>;
 
@@ -11,7 +12,7 @@ pub type Result<T> = result::Result<T, InterpreterError>;
 pub struct InterpreterError {
     line: usize,
     message: String,
-    error: CustomError,
+    pub error: CustomError,
     snippet: String
 }
 
@@ -55,6 +56,7 @@ pub enum CustomError {
     ParserError(ParserError),
     ScannerError(ScannerError),
     RuntimeError(RuntimeError),
+    Return(Option<RcObj>),
     UnknownError
 }
 
@@ -74,7 +76,8 @@ pub enum ScannerError {
 #[derive(Debug)]
 pub enum RuntimeError {
     TypeError,
-    NotFound
+    NotFound,
+    WrongArguments
 }
 
 pub fn error(line: usize, message: &str, error_type: &CustomError) {

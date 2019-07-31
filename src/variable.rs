@@ -1,4 +1,4 @@
-use crate::code::{Expr, RoxObject};
+use crate::ast::{Expr, RoxObject};
 use crate::error::CustomError;
 use crate::error::RuntimeError;
 use crate::error::{InterpreterError, Result};
@@ -63,9 +63,9 @@ impl<'a, 'b> Environment {
         self.values.insert(String::from(name), obj);
     }
 
-    pub fn assign(&mut self, name: &str, value: RcObj) -> Result<()> {
-        if self.values.contains_key(name) {
-            self.values.insert(String::from(name), value);
+    pub fn assign(&mut self, name: &Token, value: RcObj) -> Result<()> {
+        if self.values.contains_key(&name.lexem) {
+            self.values.insert(String::from(name.lexem.as_str()), value);
             return Ok(());
         }
 
@@ -73,7 +73,7 @@ impl<'a, 'b> Environment {
             return parent_env.borrow_mut().assign(name, value);
         } else {
             return Err(InterpreterError::new(
-                1,
+                name.line,
                 &format!("Undefined variable {}", name),
                 CustomError::RuntimeError(RuntimeError::NotFound),
             ));
@@ -81,6 +81,7 @@ impl<'a, 'b> Environment {
     }
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub struct Var {
     pub name: Token,
     pub initializer: Box<Expr>,

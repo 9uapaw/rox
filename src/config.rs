@@ -1,0 +1,1 @@
+pub const FN_ARG_LIMIT: usize = 8;

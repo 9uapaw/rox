@@ -1,13 +1,17 @@
-use crate::code::{Expr, Stmt};
+use crate::ast::{Expr, Stmt};
+use crate::config::FN_ARG_LIMIT;
 use crate::error::CustomError;
 use crate::error::InterpreterError;
 use crate::error::ParserError;
 use crate::error::Result;
 use crate::error::ScannerError;
+use crate::obj::function::Call;
 use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::scanner::TokenType;
 use crate::variable::Var;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub struct Parser<'a> {
     tokens: &'a Vec<Token>,
@@ -29,6 +33,9 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> Result<Stmt> {
+        if self.advance_match(&[TokenType::FUN]) {
+            return self.function("function");
+        }
         if self.advance_match(&[TokenType::VAR]) {
             return self.declare_var();
         }
@@ -43,6 +50,9 @@ impl<'a> Parser<'a> {
         if self.advance_match(&[TokenType::PRINT]) {
             return self.print_statement();
         }
+        if self.advance_match(&[TokenType::RETURN]) {
+            return self.return_statement();
+        }
         if self.advance_match(&[TokenType::FOR]) {
             return self.for_statement();
         }
@@ -50,7 +60,7 @@ impl<'a> Parser<'a> {
             return self.while_statement();
         }
         if self.advance_match(&[TokenType::LEFT_BRACE]) {
-            return Ok(Stmt::new_block(self.block()?));
+            return self.block();
         }
 
         self.expr_statement()
@@ -105,6 +115,20 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn return_statement(&mut self) -> Result<Stmt> {
+        let keyword = self.previous().clone();
+
+        let mut value = None;
+
+        if !self.check(&TokenType::SEMICOLON) {
+            value = Some(Box::new(self.expression()?));
+        }
+
+        self.consume(TokenType::SEMICOLON, "Expect ';' after return statement");
+
+        Ok(Stmt::Return { keyword, value })
+    }
+
     fn while_statement(&mut self) -> Result<Stmt> {
         self.consume(
             TokenType::LEFT_PAREN,
@@ -120,7 +144,7 @@ impl<'a> Parser<'a> {
         });
     }
 
-    fn block(&mut self) -> Result<Vec<Box<Stmt>>> {
+    fn block(&mut self) -> Result<Stmt> {
         let mut statements = vec![];
 
         while !self.check(&TokenType::RIGHT_BRACE) && !self.is_eof() {
@@ -131,7 +155,7 @@ impl<'a> Parser<'a> {
             TokenType::RIGHT_BRACE,
             "Missing } after block initialization",
         )?;
-        Ok(statements)
+        Ok(Stmt::new_block(statements))
     }
 
     fn print_statement(&mut self) -> Result<Stmt> {
@@ -355,7 +379,48 @@ impl<'a> Parser<'a> {
             });
         }
 
-        self.primary()
+        self.call()
+    }
+
+    fn call(&mut self) -> Result<Expr> {
+        let mut expr = self.primary()?;
+
+        loop {
+            if self.advance_match(&[TokenType::LEFT_PAREN]) {
+                expr = self.finish_call(expr)?;
+            } else {
+                break;
+            }
+        }
+
+        return Ok(expr);
+    }
+
+    fn finish_call(&mut self, expr: Expr) -> Result<Expr> {
+        let mut args = vec![];
+
+        if !self.check(&TokenType::RIGHT_PAREN) {
+            loop {
+                args.push(Box::new(self.expression()?));
+                if !self.advance_match(&[TokenType::COMMA]) {
+                    break;
+                }
+            }
+        }
+
+        let paren = self.consume(TokenType::RIGHT_PAREN, "Missing ) in function call")?;
+        if args.len() >= FN_ARG_LIMIT {
+            return Err(InterpreterError::new(
+                paren.line,
+                &format!(
+                    "Maximum arguments allowed in a function call is: {}",
+                    FN_ARG_LIMIT
+                ),
+                CustomError::ScannerError(ScannerError::SyntaxError),
+            ));
+        }
+
+        return Ok(Expr::Call(Call::new(Box::new(expr), paren, args)));
     }
 
     fn primary(&mut self) -> Result<Expr> {
@@ -375,7 +440,7 @@ impl<'a> Parser<'a> {
             });
         }
         match &self.peek().token_type {
-            TokenType::IDENTIFIER(_) => {
+            TokenType::IDENTIFIER => {
                 let result = Ok(Expr::Variable(self.peek().clone()));
                 self.advance();
                 return result;
@@ -405,14 +470,13 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn consume(&mut self, token_type: TokenType, expect: &'a str) -> Result<()> {
+    fn consume(&mut self, token_type: TokenType, expect: &'a str) -> Result<Token> {
         if self.check(&token_type) {
-            self.advance();
-            return Ok(());
+            return Ok(self.advance().clone());
         }
 
         Err(InterpreterError::new(
-            1,
+            self.previous().line,
             expect,
             CustomError::ParserError(ParserError::UnterminatedToken),
         ))
@@ -420,10 +484,50 @@ impl<'a> Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    fn function(&mut self, kind: &str) -> Result<Stmt> {
+        let name = self.consume(TokenType::IDENTIFIER, "Expect identifier name")?;
+        self.consume(TokenType::LEFT_PAREN, "Expect {} name")?;
+
+        let mut params = vec![];
+
+        if !self.check(&TokenType::RIGHT_PAREN) {
+            loop {
+                if params.len() >= 8 {
+                    return Err(InterpreterError::new(
+                        self.peek().line,
+                        "Can not have more than 8 parameters",
+                        CustomError::ParserError(ParserError::InvalidStatement),
+                    ));
+                }
+
+                params.push(self.consume(TokenType::IDENTIFIER, "Missing parameter name")?);
+
+                if !self.advance_match(&[TokenType::COMMA]) {
+                    break;
+                }
+            }
+        }
+
+        self.consume(
+            TokenType::RIGHT_PAREN,
+            "Unclosed parentheses after parameters.",
+        )?;
+
+        self.consume(TokenType::LEFT_BRACE, "Expected closing brace")?;
+
+        let body = self.block()?;
+
+        Ok(Stmt::Function {
+            name,
+            params,
+            body: Rc::new(RefCell::new(body)),
+        })
+    }
+
     fn declare_var(&mut self) -> Result<Stmt> {
         let name = self.advance().clone();
         match name.token_type {
-            TokenType::IDENTIFIER(_) => (),
+            TokenType::IDENTIFIER => (),
             _ => {
                 return Err(InterpreterError::new(
                     1,

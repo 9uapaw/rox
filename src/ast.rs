@@ -2,7 +2,9 @@ use crate::error::{CustomError, InterpreterError, Result};
 use crate::interpreter::{
     interpret_binary, interpret_literal, interpret_logical, interpret_ternary,
 };
-use crate::interpreter::{interpret_unary, is_rox_obj_truthy };
+use crate::interpreter::{interpret_unary, is_rox_obj_truthy};
+use crate::obj::function::{Call, Callable, CallableObj, FnObj};
+use crate::obj::Object;
 use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::variable::{Env, Environment, RcObj, Var};
@@ -15,16 +17,19 @@ use std::rc::Rc;
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoxObject {
     Literal(Literal),
+    Callable(Callable),
 }
 
 impl Display for RoxObject {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-      match self {
-          RoxObject::Literal(lit) => write!(f, "{}", lit)
-      }
+        match self {
+            RoxObject::Literal(lit) => write!(f, "{}", lit),
+            RoxObject::Callable(fn_obj) => write!(f, "{:?}", fn_obj),
+        }
     }
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub enum Expr {
     Binary {
         left: Box<Expr>,
@@ -46,6 +51,7 @@ pub enum Expr {
         operator: Token,
         right: Box<Expr>,
     },
+    Call(Call),
     Ternary {
         condition: Box<Expr>,
         left: Box<Expr>,
@@ -74,6 +80,7 @@ impl Display for Expr {
             Expr::Grouping { expression } => write!(f, "({})", expression),
             Expr::Literal { literal } => write!(f, "({})", literal),
             Expr::Unary { operator, right } => write!(f, "({}{})", operator, right),
+            Expr::Call(call) => write!(f, "{:?}", call),
             Expr::Ternary {
                 condition,
                 left,
@@ -93,6 +100,7 @@ impl Expr {
             Expr::Unary { operator, right } => Ok(Rc::new(RefCell::new(interpret_unary(
                 operator, right, env,
             )?))),
+            Expr::Call(call) => call.interpret(env),
             Expr::Binary {
                 left,
                 operator,
@@ -110,11 +118,11 @@ impl Expr {
                 left,
                 right,
             } => interpret_ternary(condition, left, right, env),
-            Expr::Variable(token) => (*env).borrow_mut().get(token),
+            Expr::Variable(token) => (*env).borrow().get(token),
             Expr::Assign { name, value } => {
                 let res = value.evaluate(env.clone())?;
-                (*env).borrow_mut().assign(&name.lexem, res)?;
-                (*env).borrow_mut().get(name)
+                (*env).borrow_mut().assign(&name, res)?;
+                (*env).borrow().get(name)
             }
             _ => Err(InterpreterError::new(
                 0,
@@ -125,6 +133,7 @@ impl Expr {
     }
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub enum Stmt {
     Expression(Box<Expr>),
     Print(Box<Expr>),
@@ -143,8 +152,17 @@ pub enum Stmt {
         init: Box<Stmt>,
         cond: Box<Expr>,
         post: Box<Expr>,
-        body: Box<Stmt>
-    }
+        body: Box<Stmt>,
+    },
+    Function {
+        name: Token,
+        params: Vec<Token>,
+        body: Rc<RefCell<Stmt>>,
+    },
+    Return {
+        keyword: Token,
+        value: Option<Box<Expr>>,
+    },
 }
 
 impl<'a> Stmt {
@@ -153,18 +171,19 @@ impl<'a> Stmt {
     }
 
     pub fn evaluate(&self, env: Env) -> Result<()> {
-        match &self {
-            Stmt::Print(expr) => println!("{:?}", self.interpret_expr(expr, env, true)?),
+        match self {
+            Stmt::Print(expr) => println!("{:?}", expr.evaluate(env)?),
             Stmt::Expression(expr) => {
-                self.interpret_expr(expr, env, false)?;
+                expr.evaluate(env)?;
             }
-            Stmt::Var(var) => (*env)
-                .borrow_mut()
-                .wrap(&var.name.lexem, var.initializer.evaluate(env.clone())?),
+            Stmt::Var(var) => {
+                let evaluated_init = var.initializer.evaluate(env.clone())?;
+                (*env).borrow_mut().wrap(&var.name.lexem, evaluated_init);
+            }
             Stmt::Block(ref block) => block.execute(env)?,
             Stmt::If {
                 condition: cond,
-                then_branch,
+                ref then_branch,
                 else_branch,
             } => {
                 if is_rox_obj_truthy(cond.evaluate(env.clone())?) {
@@ -176,6 +195,27 @@ impl<'a> Stmt {
                     }
                 }
             }
+            Stmt::Return { keyword, value } => {
+                let ret_val = if let Some(return_val) = value {
+                    Some(return_val.evaluate(env)?)
+                } else {
+                    Some(Rc::new(RefCell::new(RoxObject::Literal(Literal::Null))))
+                };
+
+                return Err(InterpreterError::new(
+                    keyword.line,
+                    "Return from a function",
+                    CustomError::Return(ret_val),
+                ));
+            }
+            Stmt::Function { name, params, body } => {
+                (*env).borrow_mut().wrap(
+                    &name.lexem,
+                    Rc::new(RefCell::new(RoxObject::Callable(Callable::FnObj(
+                        FnObj::new(name.clone(), params.clone(), body.clone()),
+                    )))),
+                );
+            }
             Stmt::While {
                 condition,
                 ref body,
@@ -184,11 +224,16 @@ impl<'a> Stmt {
                     body.evaluate(env.clone())?;
                 }
             }
-            Stmt::For {init, cond, post, body} => {
+            Stmt::For {
+                ref init,
+                cond,
+                post,
+                ref body,
+            } => {
                 init.evaluate(env.clone())?;
                 loop {
                     if !is_rox_obj_truthy(cond.evaluate(env.clone())?) {
-                        break
+                        break;
                     } else {
                         body.evaluate(env.clone())?;
                     }
@@ -199,18 +244,9 @@ impl<'a> Stmt {
 
         Ok(())
     }
-
-    fn interpret_expr(&self, expr: &Box<Expr>, env: Env, print: bool) -> Result<()> {
-        if print {
-            println!("{}", expr.evaluate(env)?.as_ref().borrow());
-        } else {
-            expr.evaluate(env)?;
-        }
-
-        Ok(())
-    }
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub struct Block {
     statements: Vec<Box<Stmt>>,
 }
@@ -224,7 +260,7 @@ impl<'a> Block {
         let env = Environment::new_with_parent(parent_env.clone());
         let env_ref = Rc::new(RefCell::new(env));
 
-        for stmt in &self.statements {
+        for stmt in self.statements.iter() {
             stmt.evaluate(env_ref.clone())?;
         }
 
