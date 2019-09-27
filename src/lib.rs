@@ -10,3 +10,4 @@ pub mod interpreter;
 pub mod variable;
 pub mod config;
 pub mod obj;
+pub mod resolve;

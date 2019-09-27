@@ -56,6 +56,7 @@ pub enum CustomError {
     ParserError(ParserError),
     ScannerError(ScannerError),
     RuntimeError(RuntimeError),
+    CompileError(CompileError),
     Return(Option<RcObj>),
     UnknownError
 }
@@ -78,6 +79,11 @@ pub enum RuntimeError {
     TypeError,
     NotFound,
     WrongArguments
+}
+
+#[derive(Debug)]
+pub enum CompileError {
+    InvalidDeclaration
 }
 
 pub fn error(line: usize, message: &str, error_type: &CustomError) {

@@ -9,10 +9,13 @@ use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::variable::{Env, Environment, RcObj, Var};
 use std::cell::RefCell;
+use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::borrow::BorrowMut;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoxObject {
@@ -29,7 +32,7 @@ impl Display for RoxObject {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Hash, Eq)]
 pub enum Expr {
     Binary {
         left: Box<Expr>,
@@ -118,11 +121,13 @@ impl Expr {
                 left,
                 right,
             } => interpret_ternary(condition, left, right, env),
-            Expr::Variable(token) => (*env).borrow().get(token),
+            Expr::Variable(token) => (*env).borrow().lookup_variable(token, self.get_hash()),
             Expr::Assign { name, value } => {
                 let res = value.evaluate(env.clone())?;
-                (*env).borrow_mut().assign(&name, res)?;
-                (*env).borrow().get(name)
+                println!("Assign value: {:?} - hash: {:?}", res, self.get_hash());
+                (*env).borrow_mut().assign_variable(name, res, self.get_hash())?;
+                (*env).borrow().lookup_variable(name, self.get_hash())
+
             }
             _ => Err(InterpreterError::new(
                 0,
@@ -130,6 +135,14 @@ impl Expr {
                 CustomError::UnknownError,
             )),
         }
+    }
+}
+
+impl Expr {
+    pub fn get_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 }
 
@@ -212,7 +225,7 @@ impl<'a> Stmt {
                 (*env).borrow_mut().wrap(
                     &name.lexem,
                     Rc::new(RefCell::new(RoxObject::Callable(Callable::FnObj(
-                        FnObj::new(name.clone(), params.clone(), body.clone()),
+                        FnObj::new(name.clone(), params.clone(), body.clone(), env.clone()),
                     )))),
                 );
             }
@@ -248,7 +261,7 @@ impl<'a> Stmt {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Block {
-    statements: Vec<Box<Stmt>>,
+    pub statements: Vec<Box<Stmt>>,
 }
 
 impl<'a> Block {
@@ -257,7 +270,10 @@ impl<'a> Block {
     }
 
     pub fn execute(&self, parent_env: Env) -> Result<()> {
-        let env = Environment::new_with_parent(parent_env.clone());
+        let env = Environment::new_with_parent(
+            parent_env.clone(),
+            parent_env.borrow().locals_ref.clone(),
+        );
         let env_ref = Rc::new(RefCell::new(env));
 
         for stmt in self.statements.iter() {

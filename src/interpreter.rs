@@ -9,18 +9,21 @@ use crate::obj::function::Callable;
 use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::scanner::TokenType;
-use crate::variable::{Env, Environment, RcObj};
+use crate::variable::{Env, Environment, Locals, RcObj};
 use std::borrow::Borrow;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 pub struct Interpreter {
     environment: Env,
+    locals: Locals,
 }
 
 impl Interpreter {
     pub fn new() -> Interpreter {
-        let mut global_env = Environment::new();
+        let locals = Rc::new(RefCell::new(HashMap::new()));
+        let mut global_env = Environment::new(locals.clone());
         global_env.wrap(
             "clock",
             Rc::new(RefCell::new(RoxObject::Callable(Callable::Builtin(
@@ -30,6 +33,7 @@ impl Interpreter {
 
         Interpreter {
             environment: Rc::new(RefCell::new(global_env)),
+            locals,
         }
     }
 
@@ -39,6 +43,10 @@ impl Interpreter {
         }
 
         Ok(())
+    }
+
+    pub fn resolve(&mut self, hash: u64, depth: usize) {
+        self.locals.borrow_mut().insert(hash, depth);
     }
 }
 

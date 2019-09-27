@@ -8,6 +8,7 @@ use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
+use crate::resolve::Resolver;
 
 pub struct Runner {
     error_occured: bool,
@@ -53,7 +54,10 @@ impl Runner {
         let mut scanner = Scanner::new(source);
         let tokens = scanner.scan_tokens();
         let mut parser = Parser::new(tokens);
-        let statements = parser.parse()?;
+        let mut statements = parser.parse()?;
+        let mut resolver = Resolver::new(&mut self.interpreter);
+
+        resolver.resolve(&mut statements)?;
 
         self.interpreter.run_interpretation(statements)
     }

@@ -6,6 +6,7 @@ use crate::obj::Object;
 use crate::scanner::Literal;
 use crate::scanner::Token;
 use crate::variable::{Env, Environment, RcObj};
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::SystemTime;
@@ -90,17 +91,24 @@ pub struct FnObj {
     name: Token,
     params: Vec<Token>,
     body: Rc<RefCell<Stmt>>,
+    closure: Env,
 }
 
 impl FnObj {
-    pub fn new(name: Token, params: Vec<Token>, body: Rc<RefCell<Stmt>>) -> FnObj {
-        FnObj { name, params, body }
+    pub fn new(name: Token, params: Vec<Token>, body: Rc<RefCell<Stmt>>, closure: Env) -> FnObj {
+        FnObj {
+            name,
+            params,
+            body,
+            closure,
+        }
     }
 }
 
 impl CallableObj for FnObj {
     fn call(&self, args: Vec<RcObj>, env: Env) -> Result<RcObj> {
-        let mut local_env = Environment::new_with_parent(env);
+        let mut local_env =
+            Environment::new_with_parent(self.closure.clone(), env.borrow().locals_ref.clone());
 
         for (i, param) in self.params.iter().enumerate() {
             local_env.wrap(&param.lexem, args.get(i).unwrap().clone());
@@ -119,11 +127,11 @@ impl CallableObj for FnObj {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Hash, Eq)]
 pub struct Call {
-    callee: Box<Expr>,
+    pub callee: Box<Expr>,
     paren: Token,
-    args: Vec<Box<Expr>>,
+    pub args: Vec<Box<Expr>>,
 }
 
 impl Call {

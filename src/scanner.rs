@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::{Hash, Hasher};
 
 lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, TokenType> = {
@@ -211,7 +212,9 @@ impl Scanner {
             }
         }
 
-        let number_string = self.source.extract_as_string(self.source.start, self.source.current);
+        let number_string = self
+            .source
+            .extract_as_string(self.source.start, self.source.current);
 
         let number = match number_string.parse::<f64>() {
             Ok(number) => number,
@@ -324,7 +327,7 @@ impl Source {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexem: String,
@@ -357,7 +360,20 @@ impl Display for Literal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl Hash for Literal {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Literal::Null => Literal::Null.hash(state),
+            Literal::String(s) => s.hash(state),
+            Literal::Boolean(b) => b.hash(state),
+            Literal::Number(n) => state.write_u64(n.to_bits()),
+        }
+    }
+}
+
+impl Eq for Literal {}
+
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum TokenType {
     LEFT_PAREN,
     RIGHT_PAREN,
