@@ -1,22 +1,29 @@
 use crate::ast::Expr;
 use crate::ast::{Block, Stmt};
+use crate::error::ParserError;
 use crate::error::{CompileError, CustomError, InterpreterError, Result};
+use crate::interpreter::Interpreter;
+use crate::obj::function::FncType;
 use crate::scanner::{Literal, Token};
 use crate::variable::Var;
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::interpreter::Interpreter;
 
 pub struct Resolver<'a> {
     scopes: Vec<HashMap<String, bool>>,
-    interpreter: &'a mut Interpreter
+    interpreter: &'a mut Interpreter,
+    current_function: Option<FncType>,
 }
 
 impl<'a> Resolver<'a> {
     pub fn new(interpreter: &'a mut Interpreter) -> Resolver<'a> {
-        Resolver { scopes: Vec::new(), interpreter }
+        Resolver {
+            scopes: Vec::new(),
+            interpreter,
+            current_function: None,
+        }
     }
 
     pub fn resolve_block(&mut self, block: &mut Block) -> Result<()> {
@@ -35,7 +42,7 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn resolve_var(&mut self, var: &mut Var) -> Result<()> {
-        self.declare(&var.name);
+        self.declare(&var.name)?;
 
         match var.initializer.borrow() {
             Expr::Literal { literal } => match literal {
@@ -55,23 +62,23 @@ impl<'a> Resolver<'a> {
         params: &Vec<Token>,
         body: Rc<RefCell<Stmt>>,
     ) -> Result<()> {
-        self.declare(name);
+        self.declare(name)?;
         self.define(name);
+
+        let enclosing_function = self.current_function.take();
+        self.current_function = Some(FncType::Function);
 
         self.begin_scope();
 
         for param in params {
-            self.declare(param);
+            self.declare(param)?;
             self.define(param);
         }
 
         self.accept_stmt((*body.as_ref().borrow_mut()).borrow_mut())?;
-//        match *body.as_ref().borrow_mut() {
-//            Stmt::Block(ref mut block) => self.resolve_block_without_scope(block)?,
-//            _ => ()
-//        };
 
         self.end_scope();
+        self.current_function = enclosing_function;
 
         Ok(())
     }
@@ -100,12 +107,19 @@ impl<'a> Resolver<'a> {
         self.scopes.pop();
     }
 
-    fn declare(&mut self, name: &Token) {
+    fn declare(&mut self, name: &Token) -> Result<()> {
         if let Some(scope) = self.scopes.iter_mut().last() {
+            if scope.contains_key(&name.lexem) {
+                return Err(InterpreterError::new(
+                    name.line,
+                    &format!("Variable '{}' already declared in this scope", name.lexem),
+                    CustomError::CompileError(CompileError::InvalidDeclaration),
+                ));
+            }
             scope.insert(name.lexem.clone(), false);
-        } else {
-            return;
         }
+
+        Ok(())
     }
 
     fn define(&mut self, name: &Token) {
@@ -133,7 +147,14 @@ impl<'a> Resolver<'a> {
                 }
                 Ok(())
             }
-            Stmt::Return { value, .. } => {
+            Stmt::Return { value, keyword } => {
+                if self.current_function.is_none() {
+                    return Err(InterpreterError::new(
+                        keyword.line,
+                        "Error returning from global scope",
+                        CustomError::ParserError(ParserError::InvalidStatement),
+                    ));
+                }
                 if let Some(ret_exp) = value {
                     self.accept_expr(ret_exp)?;
                 }
@@ -168,7 +189,6 @@ impl<'a> Resolver<'a> {
                         Some(is_defined) => *is_defined,
                         None => true,
                     } == false
-
                 {
                     for (k, val) in self.scopes.last().unwrap().iter() {
                         println!("{} {} {}", k, val, name);

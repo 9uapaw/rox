@@ -1,0 +1,9 @@
+fun hello(a) {
+    var b = "hello";
+    var b = "not";
+
+    return b + a;
+}
+
+hello("HELLO");
+return "hello world";

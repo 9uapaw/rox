@@ -11,6 +11,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::SystemTime;
 
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FncType {
+    Function
+}
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Callable {
     Builtin(String),
