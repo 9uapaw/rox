@@ -1,0 +1,40 @@
+class SuperRox {
+    iAmSuper() {
+        print "hello from super class!";
+    }
+
+    iAmOverrided() {
+        print "HELLO FROM SUPERCLASS";
+    }
+}
+
+class RoxTest < SuperRox {
+    init(otherClass) {
+        this.other = otherClass;
+        this.sum = 0;
+    }
+
+    add(value) {
+        this.sum = this.sum + value;
+    }
+
+    summarize() {
+        print this.other.sum + this.sum;
+    }
+
+    iAmOverrided() {
+        super.iAmOverrided();
+        print "HELLO FROM SUBCLASS";
+    }
+}
+
+var other = RoxTest(nil);
+var rox = RoxTest(other);
+
+other.add(23232);
+rox.add(2323);
+
+rox.summarize();
+rox.iAmSuper();
+rox.iAmOverrided();
+

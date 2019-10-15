@@ -83,7 +83,8 @@ pub enum RuntimeError {
 
 #[derive(Debug)]
 pub enum CompileError {
-    InvalidDeclaration
+    InvalidDeclaration,
+    TypeError
 }
 
 pub fn error(line: usize, message: &str, error_type: &CustomError) {

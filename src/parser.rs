@@ -5,6 +5,7 @@ use crate::error::InterpreterError;
 use crate::error::ParserError;
 use crate::error::Result;
 use crate::error::ScannerError;
+use crate::obj::class::{Get, Set};
 use crate::obj::function::Call;
 use crate::scanner::Literal;
 use crate::scanner::Token;
@@ -33,6 +34,9 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> Result<Stmt> {
+        if self.advance_match(&[TokenType::CLASS]) {
+            return self.class();
+        }
         if self.advance_match(&[TokenType::FUN]) {
             return self.function("function");
         }
@@ -290,6 +294,13 @@ impl<'a> Parser<'a> {
                         value: Box::new(value),
                     });
                 }
+                Expr::Get(get) => {
+                    return Ok(Expr::Set(Set {
+                        object: get.object.clone(),
+                        name: get.name,
+                        value: Box::new(value),
+                    }));
+                }
                 _ => {
                     return Err(InterpreterError::new(
                         1,
@@ -388,6 +399,15 @@ impl<'a> Parser<'a> {
         loop {
             if self.advance_match(&[TokenType::LEFT_PAREN]) {
                 expr = self.finish_call(expr)?;
+            } else if self.advance_match(&[TokenType::DOT]) {
+                let name = self.consume(
+                    TokenType::IDENTIFIER,
+                    "Expect identifier after attribute access '.'.",
+                )?;
+                expr = Expr::Get(Get {
+                    object: Rc::new(RefCell::new(expr)),
+                    name,
+                })
             } else {
                 break;
             }
@@ -424,6 +444,18 @@ impl<'a> Parser<'a> {
     }
 
     fn primary(&mut self) -> Result<Expr> {
+        if self.advance_match(&[TokenType::SUPER]) {
+            let keyword = self.previous().clone();
+            self.consume(TokenType::DOT, "Expected '.' after super");
+            let method = self.consume(
+                TokenType::IDENTIFIER,
+                "Expected method identifier after super",
+            )?;
+            return Ok(Expr::Super { keyword, method });
+        }
+        if self.advance_match(&[TokenType::THIS]) {
+            return Ok(Expr::This(self.previous().clone()));
+        }
         if self.advance_match(&[TokenType::FALSE]) {
             return Ok(Expr::Literal {
                 literal: Literal::Boolean(false),
@@ -476,7 +508,7 @@ impl<'a> Parser<'a> {
         }
 
         Err(InterpreterError::new(
-            self.previous().line,
+            self.peek().line,
             expect,
             CustomError::ParserError(ParserError::UnterminatedToken),
         ))
@@ -484,6 +516,33 @@ impl<'a> Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    fn class(&mut self) -> Result<Stmt> {
+        let name = self.consume(TokenType::IDENTIFIER, "Expect class name")?;
+        let mut super_class = None;
+
+        if self.advance_match(&[TokenType::LESS]) {
+            super_class = Some(Box::new(Expr::Variable(
+                self.consume(TokenType::IDENTIFIER, "Expect super class name")?,
+            )));
+        }
+
+        self.consume(TokenType::LEFT_BRACE, "Expect '{' before class body")?;
+
+        let mut methods = Vec::new();
+
+        while !self.check(&TokenType::RIGHT_BRACE) || self.is_eof() {
+            methods.push(Rc::new(RefCell::new(self.function("method")?)));
+        }
+
+        self.consume(TokenType::RIGHT_BRACE, "Expect '}' after class body")?;
+
+        Ok(Stmt::Class {
+            name,
+            methods,
+            super_class,
+        })
+    }
+
     fn function(&mut self, kind: &str) -> Result<Stmt> {
         let name = self.consume(TokenType::IDENTIFIER, "Expect identifier name")?;
         self.consume(TokenType::LEFT_PAREN, "Expect {} name")?;

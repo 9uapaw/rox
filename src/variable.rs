@@ -40,6 +40,39 @@ impl<'a, 'b> Environment {
         }
     }
 
+    pub fn get_at(&self, name: &Token, distance: usize) -> Result<RcObj> {
+        let mut env = None;
+        if distance == 0 {
+            return Ok(self
+                .values
+                .get(&name.lexem)
+                .expect(&format!(
+                    "Unexpected error at environment get_at on finding {} in {:?} on line {}",
+                    name.lexem, &self.values.keys(), name.line
+                ))
+                .clone());
+        }
+        env = self.find_ancestor(
+            self.enclosing
+                .as_ref()
+                .expect("Unexpected resolution error")
+                .clone(),
+            1,
+            distance,
+        );
+        return Ok(env
+            .expect("Unexpected resolution error")
+            .as_ref()
+            .borrow()
+            .values
+            .get(&name.lexem)
+            .expect(&format!(
+                "Unexpected error at environment get_at on finding {} in {:?} on line {}",
+                name.lexem, &self.values.keys(), name.line
+            ))
+            .clone());
+    }
+
     pub fn lookup_variable(&self, name: &Token, hash: u64) -> Result<RcObj> {
         let mut env = None;
         if let Some(distance) = self.locals_ref.borrow_mut().get(&hash) {
@@ -47,22 +80,37 @@ impl<'a, 'b> Environment {
                 return Ok(self
                     .values
                     .get(&name.lexem)
-                    .expect(&format!("Variable lookup key is not secured on line {} with values: {:?}", &name.line, self.values.keys()))
+                    .expect(&format!(
+                        "Variable lookup key is not secured on line {} with values: {:?}",
+                        &name.line,
+                        self.values.keys()
+                    ))
                     .clone());
             }
-            env = self.find_ancestor(self.enclosing.as_ref().expect("Unexpected resolution error").clone(), 1, *distance);
+            env = self.find_ancestor(
+                self.enclosing
+                    .as_ref()
+                    .expect("Unexpected resolution error")
+                    .clone(),
+                1,
+                *distance,
+            );
         } else {
             if let Some(parent) = self.enclosing.clone() {
                 env = Some(self.find_global_env(parent.clone()))
             } else {
-                return Ok(self
-                    .values
-                    .get(&name.lexem)
-                    .expect(&format!("Variable lookup key is not secured on line {} with values: {:?}", &name.line, self.values.keys()))
-                    .clone());
+                if let Some(value) = self.values.get(&name.lexem) {
+                    return Ok(value.clone());
+                } else {
+                    return Err(InterpreterError::new(
+                        name.line,
+                        &format!("Undeclared variable '{}'", &name.lexem),
+                        CustomError::RuntimeError(RuntimeError::NotFound),
+                    ));
+                }
             }
         }
-//        println!("{:?}", env.as_ref().expect("").as_ref().borrow().values.keys());
+        //        println!("{:?}", env.as_ref().expect("").as_ref().borrow().values.keys());
 
         return Ok(env
             .expect("Unexpected resolution error")
@@ -70,18 +118,25 @@ impl<'a, 'b> Environment {
             .borrow()
             .values
             .get(&name.lexem)
-            .expect(&format!("Variable '{}' not found in environment on line {}", &name.lexem, &name.line))
+            .expect(&format!(
+                "Variable '{}' not found in environment on line {}",
+                &name.lexem, &name.line
+            ))
             .clone());
     }
 
     pub fn assign_variable(&mut self, name: &Token, value: RcObj, hash: u64) -> Result<()> {
         if let Some(distance) = self.locals_ref.borrow_mut().get(&hash) {
             let mut env = self.find_ancestor(
-                self.enclosing.as_ref().expect("Unexpected resolution").clone(),
+                self.enclosing
+                    .as_ref()
+                    .expect("Unexpected resolution")
+                    .clone(),
                 1,
                 *distance,
             );
-            env.expect("Broken Environment resolution").borrow_mut()
+            env.expect("Broken Environment resolution")
+                .borrow_mut()
                 .values
                 .insert(String::from(name.lexem.as_str()), value);
         } else {
@@ -98,49 +153,8 @@ impl<'a, 'b> Environment {
         Ok(())
     }
 
-    pub fn get(&'a self, name: &Token) -> Result<RcObj> {
-        let rox_obj = match self.values.get(&name.lexem) {
-            Some(obj) => Ok(obj.clone()),
-            None => {
-                if let Some(ref parent_env) = self.enclosing {
-                    parent_env.as_ref().borrow().get(name)
-                } else {
-                    Err(InterpreterError::new(
-                        name.line,
-                        &format!("Undefined variable {}", name.lexem),
-                        CustomError::RuntimeError(RuntimeError::NotFound),
-                    ))
-                }
-            }
-        };
-
-        rox_obj
-    }
-
-    pub fn define(&mut self, name: &str, value: RoxObject) {
-        self.values
-            .insert(String::from(name), Rc::new(RefCell::new(value)));
-    }
-
     pub fn wrap(&mut self, name: &str, obj: RcObj) {
         self.values.insert(String::from(name), obj);
-    }
-
-    pub fn assign(&mut self, name: &Token, value: RcObj) -> Result<()> {
-        if self.values.contains_key(&name.lexem) {
-            self.values.insert(String::from(name.lexem.as_str()), value);
-            return Ok(());
-        }
-
-        if let Some(ref mut parent_env) = self.enclosing {
-            return parent_env.borrow_mut().assign(name, value);
-        } else {
-            return Err(InterpreterError::new(
-                name.line,
-                &format!("Undefined variable {}", name),
-                CustomError::RuntimeError(RuntimeError::NotFound),
-            ));
-        }
     }
 
     fn find_global_env(&self, env: Env) -> Env {
@@ -152,7 +166,7 @@ impl<'a, 'b> Environment {
     }
 
     fn find_ancestor(&self, env: Env, current: usize, distance: usize) -> Option<Env> {
-//        println!("current: {}, distance: {}, env: {:?}", current, distance, env.as_ref().borrow().values.keys());
+        //        println!("current: {}, distance: {}, env: {:?}", current, distance, env.as_ref().borrow().values.keys());
         if current != distance {
             let current_env = env
                 .as_ref()
